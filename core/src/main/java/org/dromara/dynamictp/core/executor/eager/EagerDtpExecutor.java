@@ -28,6 +28,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
+ * 专为IO密集场景提供的线程池增强类
+ * <p>
  * When core threads are all in busy,
  * create new thread instead of putting task into blocking queue,
  * mainly used in io intensive scenario.
@@ -39,9 +41,10 @@ public class EagerDtpExecutor extends DtpExecutor {
 
     /**
      * The number of tasks submitted but not yet finished.
+     * 已经提交的但还没有完成的任务数量
      */
     private final AtomicInteger submittedTaskCount = new AtomicInteger(0);
-    
+
     public EagerDtpExecutor(int corePoolSize,
                             int maximumPoolSize,
                             long keepAliveTime,
@@ -50,7 +53,7 @@ public class EagerDtpExecutor extends DtpExecutor {
         this(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue,
                 Executors.defaultThreadFactory(), new AbortPolicy());
     }
-    
+
     public EagerDtpExecutor(int corePoolSize,
                             int maximumPoolSize,
                             long keepAliveTime,
@@ -60,7 +63,7 @@ public class EagerDtpExecutor extends DtpExecutor {
         this(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue,
                 threadFactory, new AbortPolicy());
     }
-    
+
     public EagerDtpExecutor(int corePoolSize,
                             int maximumPoolSize,
                             long keepAliveTime,
@@ -70,7 +73,7 @@ public class EagerDtpExecutor extends DtpExecutor {
         this(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue,
                 Executors.defaultThreadFactory(), handler);
     }
-    
+
     public EagerDtpExecutor(int corePoolSize,
                             int maximumPoolSize,
                             long keepAliveTime,
@@ -100,6 +103,7 @@ public class EagerDtpExecutor extends DtpExecutor {
         try {
             super.execute(command);
         } catch (RejectedExecutionException rx) {
+            // 被拒绝时，
             if (getQueue() instanceof TaskQueue) {
                 // If the Executor is close to maximum pool size, concurrent
                 // calls to execute() may result (due to use of TaskQueue) in
@@ -107,6 +111,7 @@ public class EagerDtpExecutor extends DtpExecutor {
                 // If this happens, add them to the queue.
                 final TaskQueue queue = (TaskQueue) getQueue();
                 try {
+                    // 加入队列中
                     if (!queue.force(command, 0, TimeUnit.MILLISECONDS)) {
                         submittedTaskCount.decrementAndGet();
                         throw new RejectedExecutionException("Queue capacity is full.", rx);

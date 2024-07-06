@@ -64,6 +64,10 @@ import static org.dromara.dynamictp.common.entity.NotifyItem.mergeAllNotifyItems
 
 /**
  * DtpBeanDefinitionRegistrar related
+ * DtpBeanDefinitionRegistar实现了ConfigurationClassPostProcessor，利用Spring
+ * 的动态注册bean机制，在bean初始化之前注册 BeanDefinition 以达到注入bean的目的
+ * <p>
+ * 最终被Spring ConfigurationClassPostProcessor 执行出来，
  *
  * @author yanhom
  * @since 1.0.4
@@ -78,24 +82,53 @@ public class DtpBeanDefinitionRegistrar implements ImportBeanDefinitionRegistrar
         this.environment = environment;
     }
 
+    /**
+     * registerBeanDefinitions方法中主要做了这么几件事
+     * 1、从Environment 读取配置信息绑定到 DtpProperties
+     * 2、获取配置文件中绑定的线程池，如果没有则结束
+     * 3、遍历线程池，绑定配置构造线程池所需要的属性，根据配置中的executorType注册注册不同类型的线程池Bean
+     * 4、BeanUtil#registerIfAbsent()注册Bean
+     * <p>
+     * ExecutorType目前支持3种类型，分别对应三个线程池。
+     *
+     * @param importingClassMetadata annotation metadata of the importing
+     *                               class  导入类的注册元数据
+     * @param registry               current bean definition registry
+     *                               当前bean的定义注册器
+     */
     @Override
-    public void registerBeanDefinitions(AnnotationMetadata importingClassMetadata, BeanDefinitionRegistry registry) {
+    public void registerBeanDefinitions(AnnotationMetadata importingClassMetadata,
+                                        BeanDefinitionRegistry registry) {
         DtpProperties dtpProperties = DtpProperties.getInstance();
+        // 从Enviroment读取配置信息绑定到 DtpProperties
         BinderHelper.bindDtpProperties(environment, dtpProperties);
+        // 获取配置文件中配置的线程池
         val executors = dtpProperties.getExecutors();
         if (CollectionUtils.isEmpty(executors)) {
             log.warn("DynamicTp registrar, no executors are configured.");
             return;
         }
 
+        // 遍历并注册线程池 BeanDefinitiion
         executors.forEach(e -> {
+            // 类型选择，common -> DtpExecutor, eager -> EagerDtpExecutor
             Class<?> executorTypeClass = ExecutorType.getClass(e.getExecutorType());
+            // 通过ThreadPoolProperties 来构造线程池所需要的属性
             Map<String, Object> propertyValues = buildPropertyValues(e);
             Object[] args = buildConstructorArgs(executorTypeClass, e);
+            //  工具类 BeanDefinition注册 Bean 相当于手动用@Bean声明线程池对象
             SpringBeanHelper.register(registry, e.getThreadPoolName(), executorTypeClass, propertyValues, args);
         });
     }
 
+    /**
+     * 通过ThreadPoolProperties来构造线程池所需要的属性
+     *
+     * @param props 线程池的属性
+     * @return java.util.Map<java.lang.String, java.lang.Object>
+     * @author debao.yang
+     * @since 2024/7/5 19:32
+     */
     private Map<String, Object> buildPropertyValues(DtpExecutorProps props) {
         Map<String, Object> propertyValues = Maps.newHashMap();
         propertyValues.put(THREAD_POOL_NAME, props.getThreadPoolName());
@@ -114,20 +147,34 @@ public class DtpBeanDefinitionRegistrar implements ImportBeanDefinitionRegistrar
         propertyValues.put(PLATFORM_IDS, props.getPlatformIds());
         propertyValues.put(NOTIFY_ENABLED, props.isNotifyEnabled());
 
-        val taskWrappers = TaskWrappers.getInstance().getByNames(props.getTaskWrapperNames());
+        val taskWrappers = TaskWrappers.getInstance()
+                .getByNames(props.getTaskWrapperNames());
         propertyValues.put(TASK_WRAPPERS, taskWrappers);
         propertyValues.put(PLUGIN_NAMES, props.getPluginNames());
         propertyValues.put(AWARE_NAMES, props.getAwareNames());
         return propertyValues;
     }
 
-    private Object[] buildConstructorArgs(Class<?> clazz, DtpExecutorProps props) {
+    /**
+     * 选择阻塞队列，这里针对EagerDtpExecutor做了单独处理，选择了TaskQueue作为阻塞队列
+     *
+     * @param clazz 执行的线程池类型
+     * @param props 线程池的参数
+     * @return java.lang.Object[]
+     * @author debao.yang
+     * @since 2024/7/5 19:34
+     */
+    private Object[] buildConstructorArgs(Class<?> clazz,
+                                          DtpExecutorProps props) {
         BlockingQueue<Runnable> taskQueue;
+        // 如果是 EagerDtpExecutor 的话，对工作队列就是 TaskQueue
         if (clazz.equals(EagerDtpExecutor.class)) {
             taskQueue = new TaskQueue(props.getQueueCapacity());
         } else if (clazz.equals(PriorityDtpExecutor.class)) {
+            // 如果是优先线程池执行器的话，工作队列就是 PriorityBlockingQueue
             taskQueue = new PriorityBlockingQueue<>(props.getQueueCapacity(), PriorityDtpExecutor.getRunnableComparator());
         } else {
+            // 以上两种都不是的话，就根据配置中的 queryType 来选择阻塞的队列
             taskQueue = buildLbq(props.getQueueType(),
                     props.getQueueCapacity(),
                     props.isFair(),

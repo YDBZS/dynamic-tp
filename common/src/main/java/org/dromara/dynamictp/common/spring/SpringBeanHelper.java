@@ -53,6 +53,7 @@ public final class SpringBeanHelper {
                                 Map<String, Object> propertyValues,
                                 List<String> dependsOnBeanNames,
                                 Object... constructorArgs) {
+        // 如果存在同名的bean，则删除后重新注入Bean
         if (ifPresent(registry, beanName, clazz) || registry.containsBeanDefinition(beanName)) {
             log.info("DynamicTp registrar, bean [{}] already exists and will be overwritten", beanName);
             registry.removeBeanDefinition(beanName);
@@ -95,6 +96,15 @@ public final class SpringBeanHelper {
         return beanFactory.getBeanNamesForType(clazz, true, false);
     }
 
+    /**
+     * 注册Bean 相当于手动用@Bean 声明线程池对象
+     * @param registry
+     * @param beanName
+     * @param clazz
+     * @param propertyValues
+     * @param dependsOnBeanNames
+     * @param constructorArgs
+     */
     private static void doRegister(BeanDefinitionRegistry registry,
                                    String beanName,
                                    Class<?> clazz,
@@ -111,6 +121,7 @@ public final class SpringBeanHelper {
         if (CollectionUtils.isNotEmpty(dependsOnBeanNames)) {
             dependsOnBeanNames.forEach(builder::addDependsOn);
         }
+        // 注册Bean
         registry.registerBeanDefinition(beanName, builder.getBeanDefinition());
     }
 }

@@ -58,6 +58,8 @@ import static org.dromara.dynamictp.common.constant.DynamicTpConst.M_1;
 import static org.dromara.dynamictp.common.constant.DynamicTpConst.PROPERTIES_CHANGE_SHOW_STYLE;
 
 /**
+ * 主要负责 注册、获取、刷新某个动态线程池
+ * <p>
  * Core Registry, which keeps all registered Dynamic ThreadPoolExecutors.
  *
  * @author yanhom
@@ -68,14 +70,21 @@ public class DtpRegistry extends OnceApplicationContextEventListener {
 
     /**
      * Maintain all automatically registered and manually registered Executors.
+     * 动态线程池 key为线程池name
+     * DtpExecutor ThreadPoolExecutor加强版
      */
     private static final Map<String, ExecutorWrapper> EXECUTOR_REGISTRY = new ConcurrentHashMap<>();
 
     /**
      * Equator for comparing two TpMainFields.
+     *
+     * 标有DynamicTp注解的线程池
      */
     private static final Equator EQUATOR = new GetterBaseEquator();
 
+    /**
+     * 配置文件映射
+     */
     private static DtpProperties dtpProperties;
 
     public DtpRegistry(DtpProperties dtpProperties) {
@@ -106,7 +115,8 @@ public class DtpRegistry extends OnceApplicationContextEventListener {
      * @param wrapper the newly created ExecutorWrapper instance
      * @param source  the source of the call to register method
      */
-    public static void registerExecutor(ExecutorWrapper wrapper, String source) {
+    public static void registerExecutor(ExecutorWrapper wrapper,
+                                        String source) {
         log.info("DynamicTp register executor: {}, source: {}", ExecutorConverter.toMainFields(wrapper), source);
         EXECUTOR_REGISTRY.putIfAbsent(wrapper.getThreadPoolName(), wrapper);
     }
@@ -180,13 +190,28 @@ public class DtpRegistry extends OnceApplicationContextEventListener {
         });
     }
 
-    private static void refresh(ExecutorWrapper executorWrapper, DtpExecutorProps props) {
+    /**
+     * 1、参数合法校验
+     * 2、获取线程池旧配置
+     * 3、执行刷新
+     * 4、获取到线程池新配置
+     * 5、如果新旧配置相同，则证明没有改动，不做处理
+     * 6、否则线程池变更发送通知，并记录变更日志
+     * @param executorWrapper
+     * @param props
+     */
+    private static void refresh(ExecutorWrapper executorWrapper,
+                                DtpExecutorProps props) {
+        // 参数合法校验
         if (props.coreParamIsInValid()) {
             log.error("DynamicTp refresh, invalid parameters exist, properties: {}", props);
             throw new IllegalArgumentException("DynamicTp refresh, invalid parameters exist, properties: " + props);
         }
+        // 线程池旧属性
         TpMainFields oldFields = ExecutorConverter.toMainFields(executorWrapper);
+        // 真正开始刷新
         doRefresh(executorWrapper, props);
+        // 相等不做处理
         TpMainFields newFields = ExecutorConverter.toMainFields(executorWrapper);
         if (oldFields.equals(newFields)) {
             log.debug("DynamicTp refresh, main properties of [{}] have not changed.",
@@ -196,7 +221,9 @@ public class DtpRegistry extends OnceApplicationContextEventListener {
         // Get the changed keys
         List<FieldInfo> diffFields = EQUATOR.getDiffFields(oldFields, newFields);
         List<String> diffKeys = StreamUtil.fetchProperty(diffFields, FieldInfo::getFieldName);
+        // 线程池参数变更，平台提醒
         NoticeManager.tryNoticeAsync(executorWrapper, oldFields, diffKeys);
+        // 更新参数，日志打印
         log.info("DynamicTp refresh, tpName: [{}], changed keys: {}, corePoolSize: [{}], maxPoolSize: [{}]," +
                         " queueType: [{}], queueCapacity: [{}], keepAliveTime: [{}], rejectedType: [{}]," +
                         " allowsCoreThreadTimeOut: [{}]", executorWrapper.getThreadPoolName(), diffKeys,
@@ -210,7 +237,13 @@ public class DtpRegistry extends OnceApplicationContextEventListener {
                         newFields.isAllowCoreThreadTimeOut()));
     }
 
-    private static void doRefresh(ExecutorWrapper executorWrapper, DtpExecutorProps props) {
+    /**
+     * doRefresh真正执行线程池的刷新，也依靠JUC原生线程池支持动态属性变更。
+     * @param executorWrapper
+     * @param props
+     */
+    private static void doRefresh(ExecutorWrapper executorWrapper,
+                                  DtpExecutorProps props) {
         ExecutorAdapter<?> executor = executorWrapper.getExecutor();
         doRefreshPoolSize(executor, props);
         if (!Objects.equals(executor.getKeepAliveTime(props.getUnit()), props.getKeepAliveTime())) {
@@ -229,7 +262,8 @@ public class DtpRegistry extends OnceApplicationContextEventListener {
         doRefreshCommon(executorWrapper, props);
     }
 
-    private static void doRefreshCommon(ExecutorWrapper executorWrapper, DtpExecutorProps props) {
+    private static void doRefreshCommon(ExecutorWrapper executorWrapper,
+                                        DtpExecutorProps props) {
 
         if (StringUtils.isNotBlank(props.getThreadPoolAliasName())) {
             executorWrapper.setThreadPoolAliasName(props.getThreadPoolAliasName());
@@ -242,7 +276,8 @@ public class DtpRegistry extends OnceApplicationContextEventListener {
             val rejectHandler = RejectHandlerGetter.buildRejectedHandler(props.getRejectedHandlerType());
             executor.setRejectedExecutionHandler(rejectHandler);
         }
-        List<TaskWrapper> taskWrappers = TaskWrappers.getInstance().getByNames(props.getTaskWrapperNames());
+        List<TaskWrapper> taskWrappers = TaskWrappers.getInstance()
+                .getByNames(props.getTaskWrapperNames());
         executorWrapper.setTaskWrappers(taskWrappers);
 
         // update notify related
@@ -251,7 +286,8 @@ public class DtpRegistry extends OnceApplicationContextEventListener {
         AwareManager.refresh(executorWrapper, props);
     }
 
-    private static void doRefreshDtp(ExecutorWrapper executorWrapper, DtpExecutorProps props) {
+    private static void doRefreshDtp(ExecutorWrapper executorWrapper,
+                                     DtpExecutorProps props) {
 
         DtpExecutor executor = (DtpExecutor) executorWrapper.getExecutor();
         if (StringUtils.isNotBlank(props.getThreadPoolAliasName())) {
@@ -265,7 +301,8 @@ public class DtpRegistry extends OnceApplicationContextEventListener {
         executor.setWaitForTasksToCompleteOnShutdown(props.isWaitForTasksToCompleteOnShutdown());
         executor.setAwaitTerminationSeconds(props.getAwaitTerminationSeconds());
         executor.setPreStartAllCoreThreads(props.isPreStartAllCoreThreads());
-        List<TaskWrapper> taskWrappers = TaskWrappers.getInstance().getByNames(props.getTaskWrapperNames());
+        List<TaskWrapper> taskWrappers = TaskWrappers.getInstance()
+                .getByNames(props.getTaskWrapperNames());
         executor.setTaskWrappers(taskWrappers);
 
         // update notify related
@@ -275,7 +312,8 @@ public class DtpRegistry extends OnceApplicationContextEventListener {
         updateWrapper(executorWrapper, executor);
     }
 
-    private static void updateWrapper(ExecutorWrapper executorWrapper, DtpExecutor executor) {
+    private static void updateWrapper(ExecutorWrapper executorWrapper,
+                                      DtpExecutor executor) {
         executorWrapper.setThreadPoolAliasName(executor.getThreadPoolAliasName());
         executorWrapper.setNotifyItems(executor.getNotifyItems());
         executorWrapper.setPlatformIds(executor.getPlatformIds());
@@ -291,7 +329,8 @@ public class DtpRegistry extends OnceApplicationContextEventListener {
      * @param props    properties
      * @see <a href="https://bugs.openjdk.org/browse/JDK-7153400">JDK-7153400</a>
      */
-    private static void doRefreshPoolSize(ExecutorAdapter<?> executor, DtpExecutorProps props) {
+    private static void doRefreshPoolSize(ExecutorAdapter<?> executor,
+                                          DtpExecutorProps props) {
         if (props.getMaximumPoolSize() < executor.getMaximumPoolSize()) {
             if (!Objects.equals(executor.getCorePoolSize(), props.getCorePoolSize())) {
                 executor.setCorePoolSize(props.getCorePoolSize());
@@ -309,12 +348,16 @@ public class DtpRegistry extends OnceApplicationContextEventListener {
         }
     }
 
-    private static void updateQueueProps(ExecutorAdapter<?> executor, DtpExecutorProps props) {
+    private static void updateQueueProps(ExecutorAdapter<?> executor,
+                                         DtpExecutorProps props) {
 
         val blockingQueue = executor.getQueue();
+        // 如果队列是MemorySafeLinkedBlockingQueue，那么设置最大内存
         if (blockingQueue instanceof MemorySafeLinkedBlockingQueue) {
             ((MemorySafeLinkedBlockingQueue<Runnable>) blockingQueue).setMaxFreeMemory(props.getMaxFreeMemory() * M_1);
         }
+
+        // 如果原来的队列是 VariableLinkedBlockingQueue 类型的
         if (blockingQueue instanceof VariableLinkedBlockingQueue) {
             int capacity = blockingQueue.size() + blockingQueue.remainingCapacity();
             if (!Objects.equals(capacity, props.getQueueCapacity())) {
@@ -324,19 +367,25 @@ public class DtpRegistry extends OnceApplicationContextEventListener {
             return;
         }
         log.warn("DynamicTp refresh, the blockingqueue capacity cannot be reset, poolName: {}, queueType {}",
-                props.getThreadPoolName(), blockingQueue.getClass().getSimpleName());
+                props.getThreadPoolName(), blockingQueue.getClass()
+                        .getSimpleName());
     }
 
     @Override
     protected void onContextRefreshedEvent(ContextRefreshedEvent event) {
+        // 线程池名称
         Set<String> remoteExecutors = Collections.emptySet();
+        // 获取配置文件中配置的线程池
         if (CollectionUtils.isNotEmpty(dtpProperties.getExecutors())) {
             remoteExecutors = dtpProperties.getExecutors().stream()
                     .map(DtpExecutorProps::getThreadPoolName)
                     .collect(Collectors.toSet());
         }
+        // DTP_REGISTRY 中已经注册的线程池
         val registeredExecutors = Sets.newHashSet(EXECUTOR_REGISTRY.keySet());
+        // 找出所有线程池中没有在配置文件中配置的线程池
         val localExecutors = CollectionUtils.subtract(registeredExecutors, remoteExecutors);
+        // 日志
         log.info("DtpRegistry has been initialized, remote executors: {}, local executors: {}",
                 remoteExecutors, localExecutors);
     }

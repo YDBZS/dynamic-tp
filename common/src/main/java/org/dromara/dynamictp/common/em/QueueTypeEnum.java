@@ -76,8 +76,22 @@ public enum QueueTypeEnum {
         return buildLbq(name, capacity, false, 256);
     }
 
+    /**
+     * 非EagerDtpExecutor 则根据配置中的 queueType 来选择阻塞的队列
+     *
+     * @param name          队列类型
+     * @param capacity      队列的容量
+     * @param fair          队列是否公平
+     * @param maxFreeMemory MemorySafeLBQ 的最大可用内存，单位 M
+     * @return java.util.concurrent.BlockingQueue<java.lang.Runnable>
+     * @author debao.yang
+     * @since 2024/7/5 19:42
+     */
     @SuppressWarnings("all")
-    public static BlockingQueue<Runnable> buildLbq(String name, int capacity, boolean fair, int maxFreeMemory) {
+    public static BlockingQueue<Runnable> buildLbq(String name,
+                                                   int capacity,
+                                                   boolean fair,
+                                                   int maxFreeMemory) {
         BlockingQueue<Runnable> blockingQueue = null;
         if (Objects.equals(name, ARRAY_BLOCKING_QUEUE.getName())) {
             blockingQueue = new ArrayBlockingQueue<>(capacity);

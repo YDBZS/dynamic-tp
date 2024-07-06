@@ -46,6 +46,7 @@ public class ZookeeperRefresher extends AbstractRefresher implements Environment
     public void afterPropertiesSet() {
 
         final ConnectionStateListener connectionStateListener = (client, newState) -> {
+            // 连接变更
             if (newState == ConnectionState.RECONNECTED) {
                 loadAndRefresh();
             }
@@ -55,8 +56,10 @@ public class ZookeeperRefresher extends AbstractRefresher implements Environment
             final WatchedEvent watchedEvent = curatorEvent.getWatchedEvent();
             if (null != watchedEvent) {
                 switch (watchedEvent.getType()) {
+                    // 监听节点变更
                     case NodeChildrenChanged:
                     case NodeDataChanged:
+                        // 刷新
                         loadAndRefresh();
                         break;
                     default:

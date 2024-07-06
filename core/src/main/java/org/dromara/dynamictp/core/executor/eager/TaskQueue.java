@@ -50,14 +50,17 @@ public class TaskQueue extends VariableLinkedBlockingQueue<Runnable> {
             throw new RejectedExecutionException("The task queue does not have executor.");
         }
         int currentPoolThreadSize = executor.getPoolSize();
+        // 线程池中的线程数等于最大线程数的时候，就将任务放进队列等待工作线程处理
         if (currentPoolThreadSize == executor.getMaximumPoolSize()) {
             return super.offer(runnable);
         }
         // have free worker. put task into queue to let the worker deal with task.
+        // 如果当前未执行的任务数量小于等于当前线程数，还有剩余的Worker的进程，就将任务放进队列等待工作线程处理。
         if (executor.getSubmittedTaskCount() < currentPoolThreadSize) {
             return super.offer(runnable);
         }
         // return false to let executor create new worker.
+        // 如果当前线程数大于核心线程，但小于最大线程数，则直接返回false，外层逻辑线程池创建新的线程来执行任务
         if (currentPoolThreadSize < executor.getMaximumPoolSize()) {
             return false;
         }

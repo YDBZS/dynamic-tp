@@ -47,6 +47,14 @@ import static org.dromara.dynamictp.common.constant.DynamicTpConst.MAIN_PROPERTI
 @SuppressWarnings("all")
 public class SpringBootPropertiesBinder implements PropertiesBinder {
 
+    /**
+     * 将读取到的配置绑定到DtpProperties配置类上
+     *
+     * @param properties    配置信息
+     * @param dtpProperties 动态线程池的参数
+     * @author debao.yang
+     * @since 2024/7/5 18:03
+     */
     @Override
     public void bindDtpProperties(Map<?, Object> properties, DtpProperties dtpProperties) {
         try {

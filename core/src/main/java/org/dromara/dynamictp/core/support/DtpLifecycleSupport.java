@@ -82,6 +82,12 @@ public class DtpLifecycleSupport {
     }
 
     /**
+     * boolean waitForTasksToCompleteOnShutdown
+     * 作用就是在关闭线程池的时候是否等待任务执行完毕，如果需要等待则会拒绝新任务的提交，执行先前已经提交的任务，否则终端正在执行的任务
+     *
+     * int awaitTerminationSeconds
+     * 该字段主要是配合shutdown使用，阻塞当前线程，等待已提交的任务执行完毕或者超时的最大时间，等待线程池中的任务执行结束。
+     *
      * Perform a shutdown on the underlying ExecutorService.
      * @param executor the executor to shut down (maybe {@code null})
      * @param threadPoolName the name of the thread pool (for logging purposes)
@@ -99,9 +105,12 @@ public class DtpLifecycleSupport {
             return;
         }
         log.info("Shutting down ExecutorService, threadPoolName: {}", threadPoolName);
+        // 如果需要等待任务执行完毕，则调用 shutdown() 会执行先前已经提交的任务，拒绝新提交的任务，线程池状态变为Shutdown。
         if (waitForTasksToCompleteOnShutdown) {
             executor.shutdown();
         } else {
+            // 如果不需要等待任务执行完毕，则直接调用shutdownNow()
+            // 方法，尝试终端正在执行的任务，返回所有正在执行的任务，线程池状态变为STOP，然后调用Future的cancel方法取消
             for (Runnable remainingTask : executor.shutdownNow()) {
                 cancelRemainingTask(remainingTask);
             }

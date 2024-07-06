@@ -73,6 +73,8 @@ public class DtpExecutor extends ThreadPoolExecutor
 
     /**
      * Notify items, see {@link NotifyItemEnum}.
+     * <p>
+     * 需要提醒的平台
      */
     private List<NotifyItem> notifyItems;
 
@@ -98,6 +100,8 @@ public class DtpExecutor extends ThreadPoolExecutor
 
     /**
      * If pre start all core threads.
+     *
+     * 现成是否需要提前预热，真正调用的还是ThreadPoolExecutor的对应方法
      */
     private boolean preStartAllCoreThreads;
 
@@ -182,12 +186,16 @@ public class DtpExecutor extends ThreadPoolExecutor
     public ThreadPoolExecutor getOriginal() {
         return this;
     }
-    
+
     @Override
     public void execute(Runnable task, long startTimeout) {
         execute(task);
     }
 
+    /**
+     * 增强方法
+     * @param command the runnable task
+     */
     @Override
     public void execute(Runnable command) {
         command = getEnhancedTask(command);
@@ -195,12 +203,24 @@ public class DtpExecutor extends ThreadPoolExecutor
         super.execute(command);
     }
 
+    /**
+     * 增强方法
+     *
+     * @param t the thread that will run task {@code r}
+     * @param r the task that will be executed
+     */
     @Override
     protected void beforeExecute(Thread t, Runnable r) {
         super.beforeExecute(t, r);
         AwareManager.beforeExecute(this, t, r);
     }
 
+    /**
+     * 增强方法
+     * @param r the runnable that has completed
+     * @param t the exception that caused termination, or null if
+     * execution completed normally
+     */
     @Override
     protected void afterExecute(Runnable r, Throwable t) {
         super.afterExecute(r, t);
@@ -231,6 +251,8 @@ public class DtpExecutor extends ThreadPoolExecutor
     public void initialize() {
         NotifyHelper.initNotify(this);
         if (preStartAllCoreThreads) {
+            // 在没有任务到来之前就创建corePoolSize
+            // 个线程或一个线程，因为在默认线程池启动的时候是不会启动默认核心线程的，只有来了新的任务时才会启动线程
             prestartAllCoreThreads();
         }
         // reset reject handler in initialize phase according to rejectEnhanced

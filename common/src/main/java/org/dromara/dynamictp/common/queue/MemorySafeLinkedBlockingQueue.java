@@ -49,9 +49,11 @@ public class MemorySafeLinkedBlockingQueue<E> extends VariableLinkedBlockingQueu
 
     public static final int THE_16_MB = 16 * 1024 * 1024;
 
+    // 队列的容量
     private int maxFreeMemory;
 
     public MemorySafeLinkedBlockingQueue() {
+        // 默认16MB
         this(THE_16_MB);
     }
 
@@ -102,6 +104,7 @@ public class MemorySafeLinkedBlockingQueue<E> extends VariableLinkedBlockingQueu
 
     @Override
     public void put(final E e) throws InterruptedException {
+        // 往队列里添加元素的时候，会先判断有没有足够的空间
         if (hasRemainedMemory()) {
             super.put(e);
         }

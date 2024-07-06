@@ -59,6 +59,9 @@ import java.util.concurrent.ThreadPoolExecutor;
 import static org.dromara.dynamictp.core.support.DtpLifecycleSupport.shutdownGracefulAsync;
 
 /**
+ * DtpPostProcessor 利用了Spring容器启动BeanPostProcessor机制增强机制，在Bean
+ * 初始化的时候调用postProcessAfterInitialization，它实现了获取被IOC容器托管的线程池bean然后注册到本地的注册表中
+ * <p>
  * BeanPostProcessor that handles all related beans managed by Spring.
  *
  * @author yanhom
@@ -75,21 +78,37 @@ public class DtpPostProcessor implements BeanPostProcessor, BeanFactoryAware, Pr
     /**
      * Compatible with lower versions of Spring.
      *
-     * @param bean the new bean instance
+     * @param bean     the new bean instance
      * @param beanName the name of the bean
      * @return the bean instance to use
      * @throws BeansException in case of errors
      */
     @Override
-    public Object postProcessBeforeInitialization(Object bean, String beanName) throws BeansException {
+    public Object postProcessBeforeInitialization(Object bean,
+                                                  String beanName) throws BeansException {
         return bean;
     }
 
+    /**
+     * 1、获取到bean后，如果是非线程池类型则结束。
+     * 2、如果是DtpExecutor则注册到DTP_REGISTRY注册表中(一个ConcurrentHashMap)
+     * 3、如果是 非动态线程池 且标注了 @DynamicTp 注解则注册到 COMMON_REGISTRY 注册表中
+     * 4、如果是 非动态线程池 且未标注 @DynamicTp 注解则结束，不做增强
+     *
+     * @param bean the new bean instance
+     * @param beanName the name of the bean
+     * @return
+     * @throws BeansException
+     */
     @Override
-    public Object postProcessAfterInitialization(@NonNull Object bean, @NonNull String beanName) throws BeansException {
+    public Object postProcessAfterInitialization(@NonNull Object bean,
+                                                 @NonNull String beanName) throws BeansException {
+        // 只增强线程池相关的类
         if (!(bean instanceof ThreadPoolExecutor) && !(bean instanceof ThreadPoolTaskExecutor)) {
             return bean;
         }
+
+        // 如果是 DtpExecutor 类型注册到注册表 
         if (bean instanceof DtpExecutor) {
             return registerAndReturnDtp(bean);
         }
@@ -97,6 +116,14 @@ public class DtpPostProcessor implements BeanPostProcessor, BeanFactoryAware, Pr
         return registerAndReturnCommon(bean, beanName);
     }
 
+    /**
+     * 如果是DtpExecutor类型注册到注册表 DTP_REGISTRY
+     *
+     * @param bean 动态线程池的实例
+     * @return java.lang.Object
+     * @author debao.yang
+     * @since 2024/7/5 20:03
+     */
     private Object registerAndReturnDtp(Object bean) {
         DtpExecutor dtpExecutor = (DtpExecutor) bean;
         Object[] args = ConstructorUtil.buildTpExecutorConstructorArgs(dtpExecutor);
@@ -114,6 +141,7 @@ public class DtpPostProcessor implements BeanPostProcessor, BeanFactoryAware, Pr
     private Object registerAndReturnCommon(Object bean, String beanName) {
         String dtpAnnoValue;
         try {
+            // 获取标注 @DynamicTp 注解的bean，则为基本线程池，但受到组件管理监控
             DynamicTp dynamicTp = beanFactory.findAnnotationOnBean(beanName, DynamicTp.class);
             if (Objects.nonNull(dynamicTp)) {
                 dtpAnnoValue = dynamicTp.value();
@@ -147,7 +175,8 @@ public class DtpPostProcessor implements BeanPostProcessor, BeanFactoryAware, Pr
             try {
                 ReflectionUtil.setFieldValue("threadPoolExecutor", bean, proxy);
                 tryWrapTaskDecorator(poolTaskExecutor, proxy);
-            } catch (IllegalAccessException ignored) { }
+            } catch (IllegalAccessException ignored) {
+            }
             DtpRegistry.registerExecutor(new ExecutorWrapper(poolName, proxy), REGISTER_SOURCE);
             return bean;
         }
@@ -171,19 +200,22 @@ public class DtpPostProcessor implements BeanPostProcessor, BeanFactoryAware, Pr
         return Ordered.HIGHEST_PRECEDENCE;
     }
 
-    private ThreadPoolExecutorProxy newProxy(String name, ThreadPoolExecutor originExecutor) {
+    private ThreadPoolExecutorProxy newProxy(String name,
+                                             ThreadPoolExecutor originExecutor) {
         val proxy = new ThreadPoolExecutorProxy(originExecutor);
         shutdownGracefulAsync(originExecutor, name, 0);
         return proxy;
     }
 
-    private ScheduledThreadPoolExecutorProxy newScheduledTpProxy(String name, ScheduledThreadPoolExecutor originExecutor) {
+    private ScheduledThreadPoolExecutorProxy newScheduledTpProxy(String name,
+                                                                 ScheduledThreadPoolExecutor originExecutor) {
         val proxy = new ScheduledThreadPoolExecutorProxy(originExecutor);
         shutdownGracefulAsync(originExecutor, name, 0);
         return proxy;
     }
 
-    private void tryWrapTaskDecorator(ThreadPoolTaskExecutor poolTaskExecutor, ThreadPoolExecutorProxy proxy) throws IllegalAccessException {
+    private void tryWrapTaskDecorator(ThreadPoolTaskExecutor poolTaskExecutor,
+                                      ThreadPoolExecutorProxy proxy) throws IllegalAccessException {
         Object taskDecorator = ReflectionUtil.getFieldValue("taskDecorator", poolTaskExecutor);
         if (Objects.isNull(taskDecorator)) {
             return;
